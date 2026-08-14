@@ -7,10 +7,13 @@ App en Streamlit para construir URLs de campaña con la nomenclatura estándar d
 - `utm_content` = anuncio / creatividad
 - **Google Ads**: sin UTM manual (auto-tagging con `gclid`); la app entrega el nombre de campaña `google_tipo_producto`
 
+Repo: https://github.com/romebarr/veris-utm-builder
+
 ## Correr en local
 
 ```bash
-cd utm-builder
+git clone https://github.com/romebarr/veris-utm-builder.git
+cd veris-utm-builder
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -19,22 +22,27 @@ streamlit run app.py
 
 Abre http://localhost:8501
 
-> Streamlit aún no publica ruedas para Python 3.14. Usa Python 3.11–3.13
-> (`brew install python@3.12` y luego `python3.12 -m venv .venv`).
-
 ## Desplegar en Streamlit Community Cloud
 
-1. Sube esta carpeta a un repo de GitHub (público o privado).
-2. Entra a https://share.streamlit.io → **Create app** → conecta el repo.
+1. Entra a https://share.streamlit.io e inicia sesión con la cuenta de GitHub
+   dueña del repo (`romebarr`).
+2. **Create app** → *Deploy a public app from GitHub*.
 3. Configura:
-   - **Main file path**: `utm-builder/app.py` (o `app.py` si el repo es solo esta carpeta)
-   - **Python version**: 3.12
-4. Deploy. La URL queda tipo `https://<app>.streamlit.app`.
+   - **Repository**: `romebarr/veris-utm-builder`
+   - **Branch**: `main`
+   - **Main file path**: `app.py`
+   - **App URL**: p. ej. `veris-utm-builder` → `https://veris-utm-builder.streamlit.app`
+   - *Advanced settings* → **Python version**: 3.12
+4. **Deploy**. Tarda ~2 min en instalar `requirements.txt`.
 
-Streamlit Cloud instala `requirements.txt` automáticamente. No hace falta ningún secret.
+Atajo con todo prellenado:
+https://share.streamlit.io/deploy?repository=romebarr/veris-utm-builder&branch=main&mainModule=app.py
+
+No hace falta ningún secret. Cada `git push` a `main` redespliega la app sola.
 
 ### Restringir acceso
-En la app desplegada: **Settings → Sharing** → limita a los correos del equipo de marketing.
+En la app desplegada: **Settings → Sharing** → *Who can view this app* → limita a
+los correos del equipo de marketing.
 
 ## Editar catálogos
 
