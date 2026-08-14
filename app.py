@@ -398,7 +398,5 @@ with st.expander("ℹ️ Reglas rápidas"):
         "- Grupo de anuncios según el tipo: `tema_intencion_concordancia` en search · "
         "`producto_publico` en pmax/shopping (grupo de recursos) · `audiencia_formato` en "
         "display/video/gdemand. Se le puede añadir `_geo` al final.\n"
-        "- Un grupo = una intención, y sin fechas: el periodo vive en la campaña.\n\n"
-        "**Siempre** — aterriza en `www.veris.com.ec`, no etiquetes enlaces internos del sitio "
-        "y nunca metas datos personales (cédula, correo, teléfono) en un parámetro."
+        "- Un grupo = una intención, y sin fechas: el periodo vive en la campaña."
     )
