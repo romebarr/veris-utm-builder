@@ -1,5 +1,5 @@
 """
-UTM Builder — Veris (v1.3)
+UTM Builder — Veris (v1.2)
 Nomenclatura estándar para campañas: Meta, TikTok, Google, mail, WhatsApp, SMS, push.
 
 - utm_source   = plataforma (meta, tiktok, mailing, whatsapp, sms, push)
@@ -7,9 +7,6 @@ Nomenclatura estándar para campañas: Meta, TikTok, Google, mail, WhatsApp, SMS
 - utm_campaign = plataforma_objetivo_producto  (+ _geo _periodo opcionales)
 - utm_term     = conjunto de anuncios (audiencia)   -> solo canales con jerarquía (Meta/TikTok)
 - utm_content  = anuncio (creatividad); en Meta marca ig- / fb-
-- Meta macros  = opcional. La campaña la arma el builder y Meta rellena en el clic
-                 utm_term={{adset.name}}, utm_content={{site_source_name}}-{{ad.name}},
-                 utm_id={{campaign.id}}. Van en «Parámetros de URL» a nivel anuncio.
 - Google Ads   = sin UTM manual (auto-tagging/gclid). Se nombran dentro de la cuenta:
                  campaña      google_tipo_[objetivo]_producto_[periodo]
                  grupo        tema_intencion_concordancia   (search)
@@ -61,15 +58,6 @@ AUDIENCIAS = ["inmarket-salud", "afinidad-salud", "remarketing-30d", "remarketin
               "similares", "datos-propios", "amplia"]
 FORMATOS = ["video-15s", "video-30s", "video-6s", "display-responsive", "banner-estatico"]
 PUBLICOS = ["general", "remarketing", "datos-propios", "empresas"]
-
-# Macros dinámicos de Meta: se resuelven en el clic, van SIN codificar.
-# Modelo híbrido: la campaña la controla el builder (estable, limpia) y los
-# niveles de abajo los rellena Meta (evita errores de tipeo y desfases).
-META_MACROS = [
-    ("utm_term", "{{adset.name}}"),
-    ("utm_content", "{{site_source_name}}-{{ad.name}}"),
-    ("utm_id", "{{campaign.id}}"),
-]
 
 OBJETIVOS = ["trafico", "conversion", "leads", "alcance", "remarketing", "awareness", "retencion"]
 PRODUCTOS = [
@@ -277,28 +265,17 @@ with st.sidebar:
     # ---- niveles de anuncio ----
     term = ""
     content = ""
-    use_macros = False
     if not is_google:
         st.divider()
         if has_hierarchy:
             st.subheader("Niveles de anuncio")
             if plataforma == "meta":
-                use_macros = st.toggle(
-                    "Usar macros dinámicos de Meta", key="meta_macros",
-                    help="Meta rellena el conjunto, el anuncio y la red (fb/ig) en el momento "
-                         "del clic. Los parámetros van en el campo «Parámetros de URL» del anuncio.",
-                )
-            if use_macros:
-                st.caption("Se rellenan solos: `utm_term` = conjunto · `utm_content` = red + anuncio · "
-                           "`utm_id` = ID de campaña. La campaña sigue saliendo de arriba.")
-            else:
-                if plataforma == "meta":
-                    st.caption("Instagram vs Facebook ya no va en `utm_source`: márcalo en `utm_content` "
-                               "(ej. `ig-video-15s`, `fb-carrusel-a`).")
-                term = slug(st.text_input("utm_term — conjunto de anuncios (audiencia)", key="term",
-                                          placeholder="lookalike-1-uio, intereses-salud…"))
-                content = slug(st.text_input("utm_content — anuncio (creatividad)", key="content",
-                                             placeholder="ig-video-15s-testimonial, fb-carrusel-a…"))
+                st.caption("Instagram vs Facebook ya no va en `utm_source`: márcalo en `utm_content` "
+                           "(ej. `ig-video-15s`, `fb-carrusel-a`).")
+            term = slug(st.text_input("utm_term — conjunto de anuncios (audiencia)", key="term",
+                                      placeholder="lookalike-1-uio, intereses-salud…"))
+            content = slug(st.text_input("utm_content — anuncio (creatividad)", key="content",
+                                         placeholder="ig-video-15s-testimonial, fb-carrusel-a…"))
         else:
             content = slug(st.text_input("utm_content — pieza / creatividad (opcional)", key="content2",
                                          placeholder="cta-agenda, banner-a…"))
@@ -326,9 +303,6 @@ for e in errors:
     st.error(e)
 
 
-params: List[Tuple[str, str]] = []
-param_string = ""
-
 # ---- Google Ads: no UTMs, se entrega nombre de campaña + landing limpia ----
 if is_google:
     st.subheader("Google Ads")
@@ -354,26 +328,6 @@ if is_google:
     st.code(base_url or DEFAULT_BASE_URL, language="text")
     final_url = base_url
 
-# ---- Meta con macros: landing limpia + string de parámetros ----
-elif use_macros:
-    params = build_params(source, medium, campaign, "", "") + META_MACROS
-    # Los macros van crudos: codificarlos rompería las llaves.
-    param_string = "" if errors else "&".join(f"{k}={v}" for k, v in params)
-    final_url = "" if errors else base_url
-
-    st.subheader("Meta — macros dinámicos")
-    if param_string:
-        st.markdown("**1. URL del sitio web** — en el anuncio, sin UTMs")
-        st.code(base_url, language="text")
-        st.markdown("**2. Parámetros de URL** — en *Seguimiento → Parámetros de URL*, "
-                    "a nivel **anuncio**")
-        st.code(param_string, language="text")
-        st.caption("No los pegues también en la URL del sitio web: se duplicarían. "
-                   "Los macros no se ven en la vista previa — valida con un clic real en "
-                   "GA4 (informe en tiempo real).")
-    else:
-        st.info("Completa los campos obligatorios para generar los parámetros.")
-
 # ---- Resto de canales: URL con UTMs ----
 else:
     params = build_params(source, medium, campaign, term, content)
@@ -387,8 +341,6 @@ else:
     else:
         st.info("Completa los campos obligatorios para generar la URL.")
 
-# ---- Vista previa de parámetros (canales con UTM, con o sin macros) ----
-if not is_google:
     st.subheader("Vista previa de parámetros")
     if params:
         st.table([{"Parámetro": k, "Valor": v} for k, v in params])
@@ -403,12 +355,10 @@ if final_url and not errors:
             "utm_source": source,
             "utm_medium": medium,
             "utm_campaign": campaign,
-            "utm_term": dict(params).get("utm_term", "") if use_macros else term,
-            "utm_content": dict(params).get("utm_content", "") if use_macros else content,
-            "utm_id": dict(params).get("utm_id", "") if use_macros else "",
+            "utm_term": term,
+            "utm_content": content,
             "ad_group": ad_group,
             "url": final_url,
-            "parametros_url": param_string,
         }
         if fila not in st.session_state.historial:
             st.session_state.historial.append(fila)
@@ -444,16 +394,6 @@ with st.expander("ℹ️ Reglas rápidas"):
         "Solo Meta y TikTok tienen los dos niveles; el resto usa únicamente `utm_content`.\n"
         "- En Meta, Instagram vs Facebook se marca en `utm_content` (`ig-video-15s`, "
         "`fb-carrusel-a`).\n\n"
-        "**Meta con macros dinámicos** (opcional, se activa en la barra lateral)\n"
-        "- La campaña la sigue armando el builder; Meta rellena el resto al momento del clic: "
-        "`utm_term={{adset.name}}`, `utm_content={{site_source_name}}-{{ad.name}}` (la red sale "
-        "sola: `fb` / `ig`) y `utm_id={{campaign.id}}`.\n"
-        "- Los parámetros van en *Seguimiento → Parámetros de URL*, **a nivel anuncio**, y la URL "
-        "del sitio web queda limpia. Nunca en los dos sitios a la vez.\n"
-        "- Como el macro copia el nombre tal cual está en Meta, los conjuntos y anuncios deben "
-        "nombrarse limpios ahí (sin mayúsculas, tildes, emojis ni espacios); si no, GA4 recibe "
-        "valores sucios.\n"
-        "- Renombrar un conjunto parte la serie histórica: el ID (`utm_id`) no cambia, el nombre sí.\n\n"
         "**Google Ads** — no lleva UTM manual: el auto-tagging (`gclid`) pasa los nombres a GA4. "
         "Se nombra dentro de la cuenta:\n"
         "- Campaña = `google_tipo_[objetivo]_producto_[periodo]` "

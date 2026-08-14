@@ -8,26 +8,6 @@ App en Streamlit para construir URLs de campaña con la nomenclatura estándar d
 - `utm_term` = conjunto de anuncios (audiencia) — solo canales con jerarquía (Meta / TikTok)
 - `utm_content` = anuncio / creatividad (aquí se marca `ig-` vs `fb-`)
 
-### Meta con macros dinámicos (opcional)
-
-Toggle **"Usar macros dinámicos de Meta"** en la barra lateral. Modelo híbrido: el builder
-controla la campaña (estable y limpia) y Meta rellena los niveles de abajo en el momento del clic.
-
-| Parámetro | Valor | Origen |
-|---|---|---|
-| `utm_source` / `utm_medium` | `meta` / `paid` | fijo |
-| `utm_campaign` | `meta_conversion_citas_uio` | builder |
-| `utm_term` | `{{adset.name}}` | macro |
-| `utm_content` | `{{site_source_name}}-{{ad.name}}` | macro (`fb` / `ig` / `an` / `msg`) |
-| `utm_id` | `{{campaign.id}}` | macro — cruce de costo y sobrevive renombrados |
-
-La app entrega dos bloques: la URL del sitio web **limpia** y el string de parámetros. El string va
-en *Seguimiento → Parámetros de URL*, **a nivel anuncio** — nunca en los dos sitios a la vez, o los
-UTMs se duplican.
-
-Antes de activarlo: los conjuntos y anuncios deben estar nombrados limpios dentro de Meta, porque
-el macro copia el nombre tal cual (espacios, mayúsculas y emojis incluidos).
-
 ### Google Ads
 
 Sin UTM manual: el auto-tagging (`gclid`) lleva los nombres a GA4. La app entrega los nombres a usar
