@@ -1,11 +1,17 @@
 """
-UTM Builder — Veris (v1.1)
+UTM Builder — Veris (v1.2)
 Nomenclatura estándar para campañas: Meta, TikTok, Google, mail, WhatsApp, SMS, push.
 
+- utm_source   = plataforma (meta, tiktok, mailing, whatsapp, sms, push)
+- utm_medium   = paid para pauta; email / chat / sms / push para los directos
 - utm_campaign = plataforma_objetivo_producto  (+ _geo _periodo opcionales)
 - utm_term     = conjunto de anuncios (audiencia)   -> solo canales con jerarquía (Meta/TikTok)
-- utm_content  = anuncio (creatividad)
-- Google Ads   = sin UTM manual; se nombra la campaña google_tipo_producto (auto-tagging/gclid)
+- utm_content  = anuncio (creatividad); en Meta marca ig- / fb-
+- Google Ads   = sin UTM manual (auto-tagging/gclid). Se nombran dentro de la cuenta:
+                 campaña      google_tipo_[objetivo]_producto_[periodo]
+                 grupo        tema_intencion_concordancia   (search)
+                              producto_publico               (pmax/shopping)
+                              audiencia_formato              (display/video/gdemand)
 
 Ejecutar local:  streamlit run app.py
 """
@@ -305,8 +311,18 @@ if is_google:
     st.markdown("**Campaña**")
     st.code(campaign or "google_tipo_[objetivo]_producto_[periodo]", language="text")
 
-    st.markdown("**Grupo de recursos**" if gtipo in ("pmax", "shopping") else "**Grupo de anuncios**")
-    st.code(ad_group or "—", language="text")
+    if gtipo in ("pmax", "shopping"):
+        st.markdown("**Grupo de recursos**")
+        ag_hint = "producto_publico"
+    elif gtipo == "search":
+        st.markdown("**Grupo de anuncios**")
+        ag_hint = "tema_intencion_concordancia"
+    else:
+        st.markdown("**Grupo de anuncios**")
+        ag_hint = "audiencia_formato"
+    st.code(ad_group or ag_hint, language="text")
+    if not ad_group:
+        st.caption("Completa los campos del grupo en la barra lateral.")
 
     st.markdown("**Landing** (URL limpia, sin UTM)")
     st.code(base_url or DEFAULT_BASE_URL, language="text")
@@ -333,7 +349,7 @@ else:
 
 # ---- Historial de la sesión ----
 if final_url and not errors:
-    if st.button("➕ Guardar en el historial", use_container_width=True):
+    if st.button("➕ Guardar en el historial", width="stretch"):
         fila = {
             "canal": channel_name,
             "utm_source": source,
@@ -349,7 +365,7 @@ if final_url and not errors:
 
 if st.session_state.historial:
     st.subheader("Historial de esta sesión")
-    st.dataframe(st.session_state.historial, use_container_width=True, hide_index=True)
+    st.dataframe(st.session_state.historial, hide_index=True)
 
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=list(st.session_state.historial[0].keys()))
@@ -358,22 +374,34 @@ if st.session_state.historial:
 
     c1, c2 = st.columns(2)
     c1.download_button("⬇️ Descargar CSV", buf.getvalue(), "utms-veris.csv",
-                       "text/csv", use_container_width=True)
-    if c2.button("🗑️ Vaciar historial", use_container_width=True):
+                       "text/csv", width="stretch")
+    if c2.button("🗑️ Vaciar historial", width="stretch"):
         st.session_state.historial = []
         st.rerun()
 
 with st.expander("ℹ️ Reglas rápidas"):
     st.markdown(
-        "- **utm_campaign** = `plataforma_objetivo_producto` (ej. `meta_trafico_paquetes-preventivos`).\n"
-        "- **utm_source** = plataforma (`meta`, `tiktok`, `mailing`…), no la red suelta "
-        "(nada de `instagram` / `facebook`).\n"
-        "- **utm_medium**: pauta = `paid` · orgánico social = `organic` · `email`, `chat`, `sms`, `push`.\n"
-        "- **utm_term** = conjunto de anuncios / audiencia · **utm_content** = anuncio "
-        "(ahí marca `ig-` / `fb-`).\n"
-        "- **Google Ads**: no UTM manual. Campaña = `google_tipo_[objetivo]_producto_[periodo]`; "
-        "grupo de anuncios = `tema_intencion_concordancia` (search), `producto_publico` "
-        "(pmax/shopping) o `audiencia_formato` (display/video/gdemand).\n"
-        "- Todo en minúsculas, sin tildes, sin espacios (`-` dentro de un bloque, `_` entre bloques).\n"
-        "- Aterriza siempre en `www.veris.com.ec`; no etiquetes enlaces internos ni pongas datos personales."
+        "**Formato** — todo en minúsculas, sin tildes ni espacios: `-` dentro de un bloque, "
+        "`_` entre bloques (`meta_trafico_paquetes-preventivos`). La app lo normaliza sola.\n\n"
+        "**Canales con UTM** (Meta, TikTok, mailing, WhatsApp, SMS, push)\n"
+        "- `utm_source` = **plataforma**, no la red suelta: `meta`, `tiktok`, `mailing`, "
+        "`whatsapp`, `sms`, `push`. Nada de `instagram` / `facebook`.\n"
+        "- `utm_medium` = **cómo llega el tráfico**: `paid` para pauta · `email`, `chat`, "
+        "`sms`, `push` para los directos.\n"
+        "- `utm_campaign` = `plataforma_objetivo_producto`, con `_geo` y `_periodo` opcionales "
+        "al final (`meta_conversion_citas_uio_2026-q3`).\n"
+        "- `utm_term` = conjunto de anuncios / audiencia · `utm_content` = anuncio. "
+        "Solo Meta y TikTok tienen los dos niveles; el resto usa únicamente `utm_content`.\n"
+        "- En Meta, Instagram vs Facebook se marca en `utm_content` (`ig-video-15s`, "
+        "`fb-carrusel-a`).\n\n"
+        "**Google Ads** — no lleva UTM manual: el auto-tagging (`gclid`) pasa los nombres a GA4. "
+        "Se nombra dentro de la cuenta:\n"
+        "- Campaña = `google_tipo_[objetivo]_producto_[periodo]` "
+        "(`google_search_conversion_cardiologia_2026-q3`).\n"
+        "- Grupo de anuncios según el tipo: `tema_intencion_concordancia` en search · "
+        "`producto_publico` en pmax/shopping (grupo de recursos) · `audiencia_formato` en "
+        "display/video/gdemand. Se le puede añadir `_geo` al final.\n"
+        "- Un grupo = una intención, y sin fechas: el periodo vive en la campaña.\n\n"
+        "**Siempre** — aterriza en `www.veris.com.ec`, no etiquetes enlaces internos del sitio "
+        "y nunca metas datos personales (cédula, correo, teléfono) en un parámetro."
     )
