@@ -1,0 +1,316 @@
+"""
+UTM Builder — Veris (v1.1)
+Nomenclatura estándar para campañas: Meta, TikTok, Google, mail, WhatsApp, SMS, push.
+
+- utm_campaign = plataforma_objetivo_producto  (+ _geo _periodo opcionales)
+- utm_term     = conjunto de anuncios (audiencia)   -> solo canales con jerarquía (Meta/TikTok)
+- utm_content  = anuncio (creatividad)
+- Google Ads   = sin UTM manual; se nombra la campaña google_tipo_producto (auto-tagging/gclid)
+
+Ejecutar local:  streamlit run app.py
+"""
+
+import io
+import csv
+import re
+import unicodedata
+from typing import Dict, List, Tuple
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode, quote
+
+import streamlit as st
+
+
+# ----------------------------------------------------------------------------
+# Catálogos
+# ----------------------------------------------------------------------------
+DEFAULT_BASE_URL = "https://www.veris.com.ec/"
+ALLOWED_HOST_SUFFIX = "veris.com.ec"
+
+# Cada canal fija source + medium (según la nomenclatura de Veris).
+# hierarchy=True -> el canal tiene conjunto de anuncios + anuncio (utm_term/utm_content).
+CHANNELS: Dict[str, Dict] = {
+    "Meta – Instagram (pago)":     {"source": "instagram", "medium": "paid_social", "plataforma": "meta",     "hierarchy": True},
+    "Meta – Facebook (pago)":      {"source": "facebook",  "medium": "paid_social", "plataforma": "meta",     "hierarchy": True},
+    "Meta – Instagram (orgánico)": {"source": "instagram", "medium": "social",      "plataforma": "meta",     "hierarchy": True},
+    "Meta – Facebook (orgánico)":  {"source": "facebook",  "medium": "social",      "plataforma": "meta",     "hierarchy": True},
+    "TikTok (pago)":               {"source": "tiktok",    "medium": "paid_social", "plataforma": "tiktok",   "hierarchy": True},
+    "Google Ads":                  {"google": True,        "plataforma": "google"},
+    "Email / Mailing":             {"source": "newsletter", "medium": "email",      "plataforma": "mail",     "hierarchy": False},
+    "WhatsApp":                    {"source": "whatsapp",  "medium": "chat",        "plataforma": "whatsapp", "hierarchy": False},
+    "SMS":                         {"source": "sms",       "medium": "sms",         "plataforma": "sms",      "hierarchy": False},
+    "Push (web/app)":              {"source": "push",      "medium": "push",        "plataforma": "push",     "hierarchy": False},
+    "Otro (personalizado)":        {"otro": True,          "plataforma": ""},
+}
+
+# Tipos de campaña de Google Ads (el auto-tagging trae el nombre a GA4).
+GOOGLE_TYPES = ["search", "pmax", "gdemand", "display", "video", "shopping"]
+
+OBJETIVOS = ["trafico", "conversion", "leads", "alcance", "remarketing", "awareness", "retencion"]
+PRODUCTOS = [
+    "paquetes-preventivos", "citas", "farmacia", "laboratorio", "imagenes",
+    "chequeo-ejecutivo", "maternidad", "cardiologia", "pediatria", "odontologia",
+    "empresas", "marca",
+]
+GEOS = ["nacional", "uio", "gye", "cue", "mta", "amb"]
+
+OTRO = "➕ otro…"
+
+
+# ----------------------------------------------------------------------------
+# Utilidades
+# ----------------------------------------------------------------------------
+def slug(value: str) -> str:
+    """minúsculas, sin tildes/ñ, espacios->'-', solo [a-z0-9._-]."""
+    if not value:
+        return ""
+    value = value.strip().lower()
+    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"[\s_]+", "-", value)
+    value = re.sub(r"[^a-z0-9._-]", "", value)
+    value = re.sub(r"-{2,}", "-", value).strip("-")
+    return value
+
+
+def pick(label: str, options: List[str], key: str, placeholder: str = "") -> str:
+    """Selectbox con catálogo + opción libre. Devuelve el valor ya slugificado."""
+    choice = st.selectbox(label, options=[""] + options + [OTRO], key=f"{key}_sel")
+    if choice == OTRO:
+        return slug(st.text_input(f"{label} (libre)", key=f"{key}_free", placeholder=placeholder))
+    return slug(choice)
+
+
+def build_campaign(plataforma: str, objetivo: str, producto: str,
+                   geo: str = "", periodo: str = "") -> str:
+    """plataforma_objetivo_producto (+ _geo _periodo opcionales)."""
+    blocks = [slug(plataforma), slug(objetivo), slug(producto)]
+    if any(not b for b in blocks):
+        return ""
+    if slug(geo):
+        blocks.append(slug(geo))
+    if slug(periodo):
+        blocks.append(slug(periodo))
+    return "_".join(blocks)
+
+
+def build_google_campaign(tipo: str, producto: str, objetivo: str = "") -> str:
+    """google_tipo_[objetivo]_producto (nombre a usar dentro de Google Ads)."""
+    if not slug(tipo) or not slug(producto):
+        return ""
+    blocks = ["google", slug(tipo)]
+    if slug(objetivo):
+        blocks.append(slug(objetivo))
+    blocks.append(slug(producto))
+    return "_".join(blocks)
+
+
+def build_params(source, medium, campaign, term, content) -> List[Tuple[str, str]]:
+    pairs = [
+        ("utm_source", source),
+        ("utm_medium", medium),
+        ("utm_campaign", campaign),
+        ("utm_term", term),
+        ("utm_content", content),
+    ]
+    return [(k, v) for k, v in pairs if v]
+
+
+def append_query_params(url: str, params: List[Tuple[str, str]]) -> str:
+    """Añade UTMs respetando query existente y fragmento (#), sin duplicar claves."""
+    if not params:
+        return url
+    parts = urlsplit(url)
+    existing = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+                if k.lower() not in {k2 for k2, _ in params}]
+    query = urlencode(existing + params, quote_via=quote, safe="-._~")
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
+def url_issues(url: str) -> Tuple[List[str], List[str]]:
+    """(errores, advertencias) sobre la URL base."""
+    errors, warnings = [], []
+    if not url:
+        errors.append("La URL base es obligatoria.")
+        return errors, warnings
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        errors.append("La URL base no es válida (debe empezar con https:// e incluir dominio).")
+        return errors, warnings
+    if parts.scheme == "http":
+        warnings.append("Usa https:// en vez de http://.")
+    host = parts.netloc.split("@")[-1].split(":")[0].lower()
+    if not (host == ALLOWED_HOST_SUFFIX or host.endswith("." + ALLOWED_HOST_SUFFIX)):
+        warnings.append(f"El destino no es de `{ALLOWED_HOST_SUFFIX}`. Confirma que sea intencional.")
+    if any(k.lower().startswith("utm_") for k, _ in parse_qsl(parts.query, keep_blank_values=True)):
+        warnings.append("La URL base ya trae parámetros `utm_*`: se reemplazan por los de abajo.")
+    return errors, warnings
+
+
+# ----------------------------------------------------------------------------
+# UI
+# ----------------------------------------------------------------------------
+st.set_page_config(page_title="UTM Builder — Veris", page_icon="🔗", layout="centered")
+st.title("🔗 UTM Builder — Veris")
+st.caption("Construye URLs de campaña con nomenclatura estándar. Todo se normaliza a minúsculas, sin tildes ni espacios.")
+
+if "historial" not in st.session_state:
+    st.session_state.historial = []
+
+with st.sidebar:
+    st.header("Inputs")
+
+    channel_name = st.selectbox("Canal", options=list(CHANNELS.keys()), key="channel")
+    channel = CHANNELS[channel_name]
+    is_google = channel.get("google", False)
+    is_otro = channel.get("otro", False)
+    has_hierarchy = channel.get("hierarchy", False)
+
+    base_url = st.text_input(
+        "URL base (landing en www.veris.com.ec)",
+        value=DEFAULT_BASE_URL,
+        key="base_url",
+        help="Ej: https://www.veris.com.ec/paquetes  ·  /citas  ·  /farmacia",
+    ).strip()
+
+    # ---- source / medium ----
+    if is_otro:
+        st.subheader("Source / Medium (personalizado)")
+        plataforma = slug(st.text_input("Plataforma (para utm_campaign)", key="otro_plat"))
+        source = slug(st.text_input("utm_source", key="otro_source"))
+        medium = slug(st.text_input("utm_medium", key="otro_medium"))
+    elif is_google:
+        plataforma, source, medium = "google", "", ""
+        st.info("Google Ads: auto-tagging (gclid) activo. **No** se agregan UTMs manuales; se nombra la campaña.")
+    else:
+        plataforma = channel["plataforma"]
+        source = channel["source"]
+        medium = channel["medium"]
+        st.markdown(f"**utm_source:** `{source}`  ·  **utm_medium:** `{medium}`")
+
+    st.divider()
+
+    # ---- campaign ----
+    st.subheader("utm_campaign")
+    if is_google:
+        gtipo = st.selectbox("Tipo de campaña Google", options=GOOGLE_TYPES, key="g_tipo")
+        gprod = pick("Producto / línea", PRODUCTOS, "g_prod")
+        gobj = pick("Objetivo (opcional)", OBJETIVOS, "g_obj")
+        campaign = build_google_campaign(gtipo, gprod, gobj)
+    else:
+        manual = st.toggle("Escribir utm_campaign manual", key="camp_manual")
+        if manual:
+            campaign = slug(st.text_input("utm_campaign", key="camp_text",
+                                          placeholder="meta_trafico_paquetes-preventivos"))
+        else:
+            st.markdown(f"Estructura: `{plataforma or 'plataforma'}_objetivo_producto`")
+            objetivo = pick("Objetivo", OBJETIVOS, "objetivo")
+            producto = pick("Producto / línea", PRODUCTOS, "producto")
+            with st.expander("Opcional: geo y periodo"):
+                geo = pick("Geo", GEOS, "geo")
+                periodo = slug(st.text_input("Periodo", key="periodo", placeholder="2026-q3, 2026-08"))
+            campaign = build_campaign(plataforma, objetivo, producto, geo, periodo)
+
+    # ---- niveles de anuncio ----
+    term = ""
+    content = ""
+    if not is_google:
+        st.divider()
+        if has_hierarchy:
+            st.subheader("Niveles de anuncio")
+            term = slug(st.text_input("utm_term — conjunto de anuncios (audiencia)", key="term",
+                                      placeholder="lookalike-1-uio, intereses-salud…"))
+            content = slug(st.text_input("utm_content — anuncio (creatividad)", key="content",
+                                         placeholder="video-15s-testimonial, carrusel-a…"))
+        else:
+            content = slug(st.text_input("utm_content — pieza / creatividad (opcional)", key="content2",
+                                         placeholder="cta-agenda, banner-a…"))
+
+
+# ----------------------------------------------------------------------------
+# Validación + salida
+# ----------------------------------------------------------------------------
+errors, warnings = url_issues(base_url)
+
+if is_google:
+    if not campaign:
+        errors.append("Faltan datos para el nombre de campaña de Google (tipo y producto).")
+else:
+    if not source:
+        errors.append("utm_source es obligatorio.")
+    if not medium:
+        errors.append("utm_medium es obligatorio.")
+    if not campaign:
+        errors.append("utm_campaign es obligatorio (completa objetivo y producto, o escríbelo manual).")
+
+for w in warnings:
+    st.warning(w)
+for e in errors:
+    st.error(e)
+
+
+# ---- Google Ads: no UTMs, se entrega nombre de campaña + landing limpia ----
+if is_google:
+    st.subheader("Google Ads")
+    st.write("No se agregan UTMs. Usa este **nombre de campaña** dentro de Google Ads (GA4 lo hereda vía el gclid):")
+    st.code(campaign or "google_tipo_producto", language="text")
+    st.write("Landing (URL limpia, sin UTM):")
+    st.code(base_url or DEFAULT_BASE_URL, language="text")
+    final_url = base_url
+
+# ---- Resto de canales: URL con UTMs ----
+else:
+    params = build_params(source, medium, campaign, term, content)
+    final_url = "" if errors else append_query_params(base_url, params)
+
+    st.subheader("URL final")
+    if final_url:
+        st.code(final_url, language="text")
+        if len(final_url) > 2000:
+            st.warning("La URL supera 2.000 caracteres; acorta los valores.")
+    else:
+        st.info("Completa los campos obligatorios para generar la URL.")
+
+    st.subheader("Vista previa de parámetros")
+    if params:
+        st.table([{"Parámetro": k, "Valor": v} for k, v in params])
+    else:
+        st.info("Completa los campos para ver los parámetros.")
+
+# ---- Historial de la sesión ----
+if final_url and not errors:
+    if st.button("➕ Guardar en el historial", use_container_width=True):
+        fila = {
+            "canal": channel_name,
+            "utm_source": source,
+            "utm_medium": medium,
+            "utm_campaign": campaign,
+            "utm_term": term,
+            "utm_content": content,
+            "url": final_url,
+        }
+        if fila not in st.session_state.historial:
+            st.session_state.historial.append(fila)
+
+if st.session_state.historial:
+    st.subheader("Historial de esta sesión")
+    st.dataframe(st.session_state.historial, use_container_width=True, hide_index=True)
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=list(st.session_state.historial[0].keys()))
+    writer.writeheader()
+    writer.writerows(st.session_state.historial)
+
+    c1, c2 = st.columns(2)
+    c1.download_button("⬇️ Descargar CSV", buf.getvalue(), "utms-veris.csv",
+                       "text/csv", use_container_width=True)
+    if c2.button("🗑️ Vaciar historial", use_container_width=True):
+        st.session_state.historial = []
+        st.rerun()
+
+with st.expander("ℹ️ Reglas rápidas"):
+    st.markdown(
+        "- **utm_campaign** = `plataforma_objetivo_producto` (ej. `meta_trafico_paquetes-preventivos`).\n"
+        "- **utm_term** = conjunto de anuncios / audiencia · **utm_content** = anuncio.\n"
+        "- **Google Ads**: no UTM manual; nombra la campaña `google_tipo_producto`.\n"
+        "- Todo en minúsculas, sin tildes, sin espacios (`-` dentro de un bloque, `_` entre bloques).\n"
+        "- Aterriza siempre en `www.veris.com.ec`; no etiquetes enlaces internos ni pongas datos personales."
+    )
