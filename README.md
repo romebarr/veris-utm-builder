@@ -3,7 +3,7 @@
 App en Streamlit para construir URLs de campaña con la nomenclatura estándar de Veris.
 
 - `utm_source` = plataforma (`meta`, `tiktok`, `mailing`, `whatsapp`, `sms`, `push`), no la red suelta
-- `utm_medium` = `paid` para pauta, `organic` para social orgánico, y `email` / `chat` / `sms` / `push`
+- `utm_medium` = `paid` para pauta, y `email` / `chat` / `sms` / `push` para los canales directos
 - `utm_campaign` = `plataforma_objetivo_producto` (+ `_geo` `_periodo` opcionales)
 - `utm_term` = conjunto de anuncios (audiencia) — solo canales con jerarquía (Meta / TikTok)
 - `utm_content` = anuncio / creatividad (aquí se marca `ig-` vs `fb-`)
