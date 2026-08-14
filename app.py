@@ -29,13 +29,11 @@ ALLOWED_HOST_SUFFIX = "veris.com.ec"
 # Cada canal fija source + medium (según la nomenclatura de Veris).
 # hierarchy=True -> el canal tiene conjunto de anuncios + anuncio (utm_term/utm_content).
 CHANNELS: Dict[str, Dict] = {
-    "Meta – Instagram (pago)":     {"source": "instagram", "medium": "paid_social", "plataforma": "meta",     "hierarchy": True},
-    "Meta – Facebook (pago)":      {"source": "facebook",  "medium": "paid_social", "plataforma": "meta",     "hierarchy": True},
-    "Meta – Instagram (orgánico)": {"source": "instagram", "medium": "social",      "plataforma": "meta",     "hierarchy": True},
-    "Meta – Facebook (orgánico)":  {"source": "facebook",  "medium": "social",      "plataforma": "meta",     "hierarchy": True},
-    "TikTok (pago)":               {"source": "tiktok",    "medium": "paid_social", "plataforma": "tiktok",   "hierarchy": True},
+    "Meta (pago)":                 {"source": "meta",      "medium": "paid",        "plataforma": "meta",     "hierarchy": True},
+    "Meta (orgánico)":             {"source": "meta",      "medium": "organic",     "plataforma": "meta",     "hierarchy": True},
+    "TikTok (pago)":               {"source": "tiktok",    "medium": "paid",        "plataforma": "tiktok",   "hierarchy": True},
     "Google Ads":                  {"google": True,        "plataforma": "google"},
-    "Email / Mailing":             {"source": "newsletter", "medium": "email",      "plataforma": "mail",     "hierarchy": False},
+    "Email / Mailing":             {"source": "mailing",   "medium": "email",       "plataforma": "mail",     "hierarchy": False},
     "WhatsApp":                    {"source": "whatsapp",  "medium": "chat",        "plataforma": "whatsapp", "hierarchy": False},
     "SMS":                         {"source": "sms",       "medium": "sms",         "plataforma": "sms",      "hierarchy": False},
     "Push (web/app)":              {"source": "push",      "medium": "push",        "plataforma": "push",     "hierarchy": False},
@@ -216,10 +214,13 @@ with st.sidebar:
         st.divider()
         if has_hierarchy:
             st.subheader("Niveles de anuncio")
+            if plataforma == "meta":
+                st.caption("Instagram vs Facebook ya no va en `utm_source`: márcalo en `utm_content` "
+                           "(ej. `ig-video-15s`, `fb-carrusel-a`).")
             term = slug(st.text_input("utm_term — conjunto de anuncios (audiencia)", key="term",
                                       placeholder="lookalike-1-uio, intereses-salud…"))
             content = slug(st.text_input("utm_content — anuncio (creatividad)", key="content",
-                                         placeholder="video-15s-testimonial, carrusel-a…"))
+                                         placeholder="ig-video-15s-testimonial, fb-carrusel-a…"))
         else:
             content = slug(st.text_input("utm_content — pieza / creatividad (opcional)", key="content2",
                                          placeholder="cta-agenda, banner-a…"))
@@ -309,7 +310,11 @@ if st.session_state.historial:
 with st.expander("ℹ️ Reglas rápidas"):
     st.markdown(
         "- **utm_campaign** = `plataforma_objetivo_producto` (ej. `meta_trafico_paquetes-preventivos`).\n"
-        "- **utm_term** = conjunto de anuncios / audiencia · **utm_content** = anuncio.\n"
+        "- **utm_source** = plataforma (`meta`, `tiktok`, `mailing`…), no la red suelta "
+        "(nada de `instagram` / `facebook`).\n"
+        "- **utm_medium**: pauta = `paid` · orgánico social = `organic` · `email`, `chat`, `sms`, `push`.\n"
+        "- **utm_term** = conjunto de anuncios / audiencia · **utm_content** = anuncio "
+        "(ahí marca `ig-` / `fb-`).\n"
         "- **Google Ads**: no UTM manual; nombra la campaña `google_tipo_producto`.\n"
         "- Todo en minúsculas, sin tildes, sin espacios (`-` dentro de un bloque, `_` entre bloques).\n"
         "- Aterriza siempre en `www.veris.com.ec`; no etiquetes enlaces internos ni pongas datos personales."
