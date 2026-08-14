@@ -269,9 +269,6 @@ with st.sidebar:
         st.divider()
         if has_hierarchy:
             st.subheader("Niveles de anuncio")
-            if plataforma == "meta":
-                st.caption("Instagram vs Facebook ya no va en `utm_source`: márcalo en `utm_content` "
-                           "(ej. `ig-video-15s`, `fb-carrusel-a`).")
             term = slug(st.text_input("utm_term — conjunto de anuncios (audiencia)", key="term",
                                       placeholder="lookalike-1-uio, intereses-salud…"))
             content = slug(st.text_input("utm_content — anuncio (creatividad)", key="content",
