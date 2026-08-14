@@ -30,7 +30,6 @@ ALLOWED_HOST_SUFFIX = "veris.com.ec"
 # hierarchy=True -> el canal tiene conjunto de anuncios + anuncio (utm_term/utm_content).
 CHANNELS: Dict[str, Dict] = {
     "Meta (pago)":                 {"source": "meta",      "medium": "paid",        "plataforma": "meta",     "hierarchy": True},
-    "Meta (orgánico)":             {"source": "meta",      "medium": "organic",     "plataforma": "meta",     "hierarchy": True},
     "TikTok (pago)":               {"source": "tiktok",    "medium": "paid",        "plataforma": "tiktok",   "hierarchy": True},
     "Google Ads":                  {"google": True,        "plataforma": "google"},
     "Email / Mailing":             {"source": "mailing",   "medium": "email",       "plataforma": "mail",     "hierarchy": False},
@@ -42,6 +41,17 @@ CHANNELS: Dict[str, Dict] = {
 
 # Tipos de campaña de Google Ads (el auto-tagging trae el nombre a GA4).
 GOOGLE_TYPES = ["search", "pmax", "gdemand", "display", "video", "shopping"]
+
+# Cómo se arma el grupo de anuncios según el tipo de campaña.
+#   search           -> tema_intencion_concordancia   (cardiologia_generico_exacta)
+#   pmax / shopping  -> grupo de recursos: producto_publico
+#   display/video/gd -> audiencia_formato
+INTENCIONES = ["marca", "generico", "competencia", "sintoma", "precio", "ubicacion"]
+CONCORDANCIAS = ["exacta", "frase", "amplia"]
+AUDIENCIAS = ["inmarket-salud", "afinidad-salud", "remarketing-30d", "remarketing-90d",
+              "similares", "datos-propios", "amplia"]
+FORMATOS = ["video-15s", "video-30s", "video-6s", "display-responsive", "banner-estatico"]
+PUBLICOS = ["general", "remarketing", "datos-propios", "empresas"]
 
 OBJETIVOS = ["trafico", "conversion", "leads", "alcance", "remarketing", "awareness", "retencion"]
 PRODUCTOS = [
@@ -90,15 +100,30 @@ def build_campaign(plataforma: str, objetivo: str, producto: str,
     return "_".join(blocks)
 
 
-def build_google_campaign(tipo: str, producto: str, objetivo: str = "") -> str:
-    """google_tipo_[objetivo]_producto (nombre a usar dentro de Google Ads)."""
+def join_blocks(*blocks: str) -> str:
+    """Une bloques ya slugificados con '_', descartando vacíos."""
+    return "_".join([b for b in (slug(x) for x in blocks) if b])
+
+
+def build_google_campaign(tipo: str, producto: str, objetivo: str = "",
+                          periodo: str = "") -> str:
+    """google_tipo_[objetivo]_producto[_periodo] (nombre a usar dentro de Google Ads)."""
     if not slug(tipo) or not slug(producto):
         return ""
-    blocks = ["google", slug(tipo)]
-    if slug(objetivo):
-        blocks.append(slug(objetivo))
-    blocks.append(slug(producto))
-    return "_".join(blocks)
+    return join_blocks("google", tipo, objetivo, producto, periodo)
+
+
+def build_ad_group(*blocks: str) -> str:
+    """Grupo de anuncios (o grupo de recursos en pmax/shopping).
+
+    search           -> tema_intencion_concordancia   (cardiologia_generico_exacta)
+    pmax / shopping  -> producto_publico              (paquetes-preventivos_general)
+    display/video/gd -> audiencia_formato             (remarketing-30d_video-15s)
+    El primer bloque es obligatorio; los vacíos se descartan.
+    """
+    if not blocks or not slug(blocks[0]):
+        return ""
+    return join_blocks(*blocks)
 
 
 def build_params(source, medium, campaign, term, content) -> List[Tuple[str, str]]:
@@ -188,11 +213,35 @@ with st.sidebar:
 
     # ---- campaign ----
     st.subheader("utm_campaign")
+    ad_group = ""
     if is_google:
         gtipo = st.selectbox("Tipo de campaña Google", options=GOOGLE_TYPES, key="g_tipo")
         gprod = pick("Producto / línea", PRODUCTOS, "g_prod")
         gobj = pick("Objetivo (opcional)", OBJETIVOS, "g_obj")
-        campaign = build_google_campaign(gtipo, gprod, gobj)
+        gper = slug(st.text_input("Periodo (opcional)", key="g_periodo",
+                                  placeholder="2026-q3, 2026-08, black-friday"))
+        campaign = build_google_campaign(gtipo, gprod, gobj, gper)
+
+        st.divider()
+        st.subheader("Grupo de anuncios")
+        if gtipo == "search":
+            st.caption("Estructura: `tema_intencion_concordancia`")
+            ag_tema = pick("Tema / servicio", PRODUCTOS, "ag_tema",
+                           placeholder="resonancia, chequeo-ejecutivo…")
+            ag_b = pick("Intención", INTENCIONES, "ag_int")
+            ag_c = pick("Concordancia", CONCORDANCIAS, "ag_match")
+        elif gtipo in ("pmax", "shopping"):
+            st.caption("Grupo de recursos (asset group). Estructura: `producto_publico`")
+            ag_tema = pick("Producto / línea", PRODUCTOS, "ag_prod")
+            ag_b = pick("Público", PUBLICOS, "ag_pub")
+            ag_c = ""
+        else:  # display, video, gdemand
+            st.caption("Estructura: `audiencia_formato`")
+            ag_tema = pick("Audiencia", AUDIENCIAS, "ag_aud")
+            ag_b = pick("Formato", FORMATOS, "ag_fmt")
+            ag_c = ""
+        ag_geo = pick("Geo (opcional)", GEOS, "ag_geo")
+        ad_group = build_ad_group(ag_tema, ag_b, ag_c, ag_geo)
     else:
         manual = st.toggle("Escribir utm_campaign manual", key="camp_manual")
         if manual:
@@ -251,9 +300,15 @@ for e in errors:
 # ---- Google Ads: no UTMs, se entrega nombre de campaña + landing limpia ----
 if is_google:
     st.subheader("Google Ads")
-    st.write("No se agregan UTMs. Usa este **nombre de campaña** dentro de Google Ads (GA4 lo hereda vía el gclid):")
-    st.code(campaign or "google_tipo_producto", language="text")
-    st.write("Landing (URL limpia, sin UTM):")
+    st.write("No se agregan UTMs. Usa estos nombres dentro de Google Ads (GA4 los hereda vía el gclid):")
+
+    st.markdown("**Campaña**")
+    st.code(campaign or "google_tipo_[objetivo]_producto_[periodo]", language="text")
+
+    st.markdown("**Grupo de recursos**" if gtipo in ("pmax", "shopping") else "**Grupo de anuncios**")
+    st.code(ad_group or "—", language="text")
+
+    st.markdown("**Landing** (URL limpia, sin UTM)")
     st.code(base_url or DEFAULT_BASE_URL, language="text")
     final_url = base_url
 
@@ -286,6 +341,7 @@ if final_url and not errors:
             "utm_campaign": campaign,
             "utm_term": term,
             "utm_content": content,
+            "ad_group": ad_group,
             "url": final_url,
         }
         if fila not in st.session_state.historial:
@@ -315,7 +371,9 @@ with st.expander("ℹ️ Reglas rápidas"):
         "- **utm_medium**: pauta = `paid` · orgánico social = `organic` · `email`, `chat`, `sms`, `push`.\n"
         "- **utm_term** = conjunto de anuncios / audiencia · **utm_content** = anuncio "
         "(ahí marca `ig-` / `fb-`).\n"
-        "- **Google Ads**: no UTM manual; nombra la campaña `google_tipo_producto`.\n"
+        "- **Google Ads**: no UTM manual. Campaña = `google_tipo_[objetivo]_producto_[periodo]`; "
+        "grupo de anuncios = `tema_intencion_concordancia` (search), `producto_publico` "
+        "(pmax/shopping) o `audiencia_formato` (display/video/gdemand).\n"
         "- Todo en minúsculas, sin tildes, sin espacios (`-` dentro de un bloque, `_` entre bloques).\n"
         "- Aterriza siempre en `www.veris.com.ec`; no etiquetes enlaces internos ni pongas datos personales."
     )
