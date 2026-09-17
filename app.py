@@ -18,6 +18,7 @@ Ejecutar local:  streamlit run app.py
 
 import io
 import csv
+import hmac
 import re
 import unicodedata
 from typing import Dict, List, Tuple
@@ -178,6 +179,54 @@ def url_issues(url: str) -> Tuple[List[str], List[str]]:
 # UI
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="UTM Builder — Veris", page_icon="🔗", layout="centered")
+
+# ----------------------------------------------------------------------------
+# Acceso
+# ----------------------------------------------------------------------------
+# Dos contrasenas (Veris y agencia) definidas en .streamlit/secrets.toml.
+# Solo cierran la app al publico: adentro los dos perfiles ven exactamente lo mismo.
+PERFILES = {"veris": "Veris", "agencia": "Agencia"}
+
+
+def claves_configuradas() -> Dict[str, str]:
+    try:
+        return {k: str(v) for k, v in st.secrets["passwords"].items()}
+    except Exception:
+        return {}
+
+
+def puerta() -> bool:
+    if st.session_state.get("perfil"):
+        return True
+
+    st.title("🔗 UTM Builder — Veris")
+    st.caption("Herramienta interna. Ingresa la contrasena que te compartieron.")
+
+    claves = claves_configuradas()
+    if not claves:
+        st.error(
+            "No hay contrasenas configuradas. Crea `.streamlit/secrets.toml` con una "
+            "seccion `[passwords]` (ver `secrets.toml.example`)."
+        )
+        return False
+
+    with st.form("login"):
+        clave = st.text_input("Contrasena", type="password")
+        entrar = st.form_submit_button("Entrar")
+
+    if entrar:
+        for perfil, esperada in claves.items():
+            if hmac.compare_digest(clave, esperada):
+                st.session_state.perfil = perfil
+                st.rerun()
+        st.error("Contrasena incorrecta.")
+
+    return False
+
+
+if not puerta():
+    st.stop()
+
 st.title("🔗 UTM Builder — Veris")
 st.caption("Construye URLs de campaña con nomenclatura estándar. Todo se normaliza a minúsculas, sin tildes ni espacios.")
 
@@ -185,6 +234,13 @@ if "historial" not in st.session_state:
     st.session_state.historial = []
 
 with st.sidebar:
+    perfil_actual = st.session_state.get("perfil", "")
+    st.caption(f"Sesion: **{PERFILES.get(perfil_actual, perfil_actual)}**")
+    if st.button("Salir", use_container_width=True):
+        st.session_state.pop("perfil", None)
+        st.rerun()
+    st.divider()
+
     st.header("Inputs")
 
     channel_name = st.selectbox("Canal", options=list(CHANNELS.keys()), key="channel")

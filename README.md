@@ -55,9 +55,31 @@ https://share.streamlit.io/deploy?repository=romebarr/veris-utm-builder&branch=m
 
 No hace falta ningún secret. Cada `git push` a `main` redespliega la app sola.
 
-### Restringir acceso
-En la app desplegada: **Settings → Sharing** → *Who can view this app* → limita a
-los correos del equipo de marketing.
+## Acceso
+
+La app no es pública: pide contraseña antes de mostrar nada. Hay **dos claves**, una para
+Veris y otra para la agencia. Solo separan quién entra — una vez dentro ambos perfiles ven
+exactamente lo mismo.
+
+Las claves viven en `.streamlit/secrets.toml`, que está en `.gitignore` y nunca se sube al repo:
+
+```toml
+[passwords]
+veris   = "..."
+agencia = "..."
+```
+
+Usa `.streamlit/secrets.toml.example` como plantilla (`cp .streamlit/secrets.toml.example .streamlit/secrets.toml`).
+
+**En Streamlit Cloud**: la app puede quedar pública en Community Cloud; el candado lo pone la
+contraseña. Pega el mismo bloque `[passwords]` en **Settings → Secrets** de la app desplegada.
+Al guardar, la app se reinicia sola.
+
+**Para rotar una clave**: cambias el valor en Settings → Secrets (y en tu `secrets.toml` local).
+No hace falta tocar código ni redeployar.
+
+La sesión vive en la pestaña del navegador: al recargar o abrir una ventana nueva se vuelve a
+pedir la contraseña. El botón **Salir** de la barra lateral la cierra a mano.
 
 ## Editar catálogos
 
