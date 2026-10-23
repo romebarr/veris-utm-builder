@@ -5,13 +5,21 @@ App en Streamlit para construir URLs de campaña con la nomenclatura estándar d
 - `utm_source` = plataforma (`meta`, `tiktok`, `mailing`, `whatsapp`, `sms`, `push`), no la red suelta
 - `utm_medium` = `paid` para pauta, y `email` / `chat` / `sms` / `push` para los canales directos
 - `utm_campaign` = `plataforma_objetivo_producto` (+ `_geo` `_periodo` opcionales)
-- `utm_term` = conjunto de anuncios (audiencia) — solo canales con jerarquía (Meta / TikTok)
-- `utm_content` = anuncio / creatividad (aquí se marca `ig-` vs `fb-`)
+- `utm_term` = conjunto de anuncios: `audiencia` + `_geo` opcional — solo canales con jerarquía (Meta / TikTok)
+- `utm_content` = anuncio: `formato-tema-version` (en Meta, `ig-` o `fb-` delante si es de una sola red)
+
+**Regla de oro:** cada nombre se crea en la app y se copia igual a la plataforma (campaña, conjunto,
+anuncio) y al UTM. Los UTM se llenan a mano con la app; no se usan los parámetros automáticos de
+Meta o TikTok (`{{campaign.name}}`), porque si se edita un nombre no se actualizan.
+
+La guía para Marketing y agencias es `NOMENCLATURA-UTM.html` (entregada a Veris en octubre de 2026).
 
 ### Google Ads
 
-Sin UTM manual: el auto-tagging (`gclid`) lleva los nombres a GA4. La app entrega los nombres a usar
-dentro de la cuenta:
+Auto-tagging (`gclid`) activo **y además** un sufijo de URL final en cada campaña:
+`utm_source=google&utm_medium=cpc&utm_campaign=<nombre exacto de la campaña>`. Los reportes de
+BigQuery leen los UTM: sin el sufijo, las visitas de Google Ads cuentan como búsqueda orgánica.
+La app entrega el sufijo y los nombres a usar dentro de la cuenta:
 
 | Nivel | Estructura | Ejemplo |
 |---|---|---|

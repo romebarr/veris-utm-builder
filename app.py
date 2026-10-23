@@ -1,13 +1,16 @@
 """
-UTM Builder — Veris (v1.2)
+UTM Builder — Veris (v1.3)
 Nomenclatura estándar para campañas: Meta, TikTok, Google, mail, WhatsApp, SMS, push.
 
 - utm_source   = plataforma (meta, tiktok, mailing, whatsapp, sms, push)
 - utm_medium   = paid para pauta; email / chat / sms / push para los directos
 - utm_campaign = plataforma_objetivo_producto  (+ _geo _periodo opcionales)
-- utm_term     = conjunto de anuncios (audiencia)   -> solo canales con jerarquía (Meta/TikTok)
-- utm_content  = anuncio (creatividad); en Meta marca ig- / fb-
-- Google Ads   = sin UTM manual (auto-tagging/gclid). Se nombran dentro de la cuenta:
+- utm_term     = conjunto de anuncios: audiencia (+ _geo)  -> solo canales con jerarquía (Meta/TikTok)
+- utm_content  = anuncio: formato-tema-version (en Meta, ig- / fb- delante si es de una sola red)
+- Regla de oro = cada nombre se crea aquí y se copia igual a la plataforma y al UTM.
+                 Los UTM se llenan a mano: no se usan parámetros dinámicos ({{campaign.name}}).
+- Google Ads   = auto-tagging (gclid) activo + sufijo de URL final con
+                 utm_source=google&utm_medium=cpc&utm_campaign=<nombre de la campaña>.
                  campaña      google_tipo_[objetivo]_producto_[periodo]
                  grupo        tema_intencion_concordancia   (search)
                               producto_publico               (pmax/shopping)
@@ -38,7 +41,7 @@ ALLOWED_HOST_SUFFIX = "veris.com.ec"
 CHANNELS: Dict[str, Dict] = {
     "Meta (pago)":                 {"source": "meta",      "medium": "paid",        "plataforma": "meta",     "hierarchy": True},
     "TikTok (pago)":               {"source": "tiktok",    "medium": "paid",        "plataforma": "tiktok",   "hierarchy": True},
-    "Google Ads":                  {"google": True,        "plataforma": "google"},
+    "Google Ads":                  {"google": True,        "source": "google",   "medium": "cpc",         "plataforma": "google"},
     "Email / Mailing":             {"source": "mailing",   "medium": "email",       "plataforma": "mail",     "hierarchy": False},
     "WhatsApp":                    {"source": "whatsapp",  "medium": "chat",        "plataforma": "whatsapp", "hierarchy": False},
     "SMS":                         {"source": "sms",       "medium": "sms",         "plataforma": "sms",      "hierarchy": False},
@@ -46,7 +49,7 @@ CHANNELS: Dict[str, Dict] = {
     "Otro (personalizado)":        {"otro": True,          "plataforma": ""},
 }
 
-# Tipos de campaña de Google Ads (el auto-tagging trae el nombre a GA4).
+# Tipos de campaña de Google Ads.
 GOOGLE_TYPES = ["search", "pmax", "gdemand", "display", "video", "shopping"]
 
 # Cómo se arma el grupo de anuncios según el tipo de campaña.
@@ -59,6 +62,10 @@ AUDIENCIAS = ["inmarket-salud", "afinidad-salud", "remarketing-30d", "remarketin
               "similares", "datos-propios", "amplia"]
 FORMATOS = ["video-15s", "video-30s", "video-6s", "display-responsive", "banner-estatico"]
 PUBLICOS = ["general", "remarketing", "datos-propios", "empresas"]
+
+# Audiencias del conjunto de anuncios en Meta / TikTok (utm_term).
+AUDIENCIAS_SOCIAL = ["intereses-salud", "similares", "remarketing-30d", "remarketing-90d",
+                     "datos-propios", "amplia"]
 
 OBJETIVOS = ["trafico", "conversion", "leads", "alcance", "remarketing", "awareness", "retencion"]
 PRODUCTOS = [
@@ -84,6 +91,16 @@ def slug(value: str) -> str:
     value = re.sub(r"[^a-z0-9._-]", "", value)
     value = re.sub(r"-{2,}", "-", value).strip("-")
     return value
+
+
+def slug_blocks(value: str) -> str:
+    """Como slug(), pero respeta '_' como separador de bloques.
+
+    'Meta_Conversion_Citas UIO' -> 'meta_conversion_citas-uio'
+    """
+    if not value:
+        return ""
+    return "_".join(b for b in (slug(x) for x in value.split("_")) if b)
 
 
 def pick(label: str, options: List[str], key: str, placeholder: str = "") -> str:
@@ -145,12 +162,16 @@ def build_params(source, medium, campaign, term, content) -> List[Tuple[str, str
 
 
 def append_query_params(url: str, params: List[Tuple[str, str]]) -> str:
-    """Añade UTMs respetando query existente y fragmento (#), sin duplicar claves."""
+    """Añade UTMs respetando query existente y fragmento (#).
+
+    Quita todos los utm_* que ya traiga la URL, aunque no se vayan a reemplazar:
+    un utm_term viejo no debe sobrevivir junto a una campaña nueva.
+    """
     if not params:
         return url
     parts = urlsplit(url)
     existing = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
-                if k.lower() not in {k2 for k2, _ in params}]
+                if not k.lower().startswith("utm_")]
     query = urlencode(existing + params, quote_via=quote, safe="-._~")
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
@@ -171,7 +192,7 @@ def url_issues(url: str) -> Tuple[List[str], List[str]]:
     if not (host == ALLOWED_HOST_SUFFIX or host.endswith("." + ALLOWED_HOST_SUFFIX)):
         warnings.append(f"El destino no es de `{ALLOWED_HOST_SUFFIX}`. Confirma que sea intencional.")
     if any(k.lower().startswith("utm_") for k, _ in parse_qsl(parts.query, keep_blank_values=True)):
-        warnings.append("La URL base ya trae parámetros `utm_*`: se reemplazan por los de abajo.")
+        warnings.append("La URL base ya trae parámetros `utm_*`: se reemplazan todos por los de abajo.")
     return errors, warnings
 
 
@@ -183,7 +204,7 @@ st.set_page_config(page_title="UTM Builder — Veris", page_icon="🔗", layout=
 # ----------------------------------------------------------------------------
 # Acceso
 # ----------------------------------------------------------------------------
-# Dos contrasenas (Veris y agencia) definidas en .streamlit/secrets.toml.
+# Dos contraseñas (Veris y agencia) definidas en .streamlit/secrets.toml.
 # Solo cierran la app al publico: adentro los dos perfiles ven exactamente lo mismo.
 PERFILES = {"veris": "Veris", "agencia": "Agencia"}
 
@@ -200,18 +221,18 @@ def puerta() -> bool:
         return True
 
     st.title("🔗 UTM Builder — Veris")
-    st.caption("Herramienta interna. Ingresa la contrasena que te compartieron.")
+    st.caption("Herramienta interna. Ingresa la contraseña que te compartieron.")
 
     claves = claves_configuradas()
     if not claves:
         st.error(
-            "No hay contrasenas configuradas. Crea `.streamlit/secrets.toml` con una "
-            "seccion `[passwords]` (ver `secrets.toml.example`)."
+            "No hay contraseñas configuradas. Crea `.streamlit/secrets.toml` con una "
+            "sección `[passwords]` (ver `secrets.toml.example`)."
         )
         return False
 
     with st.form("login"):
-        clave = st.text_input("Contrasena", type="password")
+        clave = st.text_input("Contraseña", type="password")
         entrar = st.form_submit_button("Entrar")
 
     if entrar:
@@ -219,7 +240,7 @@ def puerta() -> bool:
             if hmac.compare_digest(clave, esperada):
                 st.session_state.perfil = perfil
                 st.rerun()
-        st.error("Contrasena incorrecta.")
+        st.error("Contraseña incorrecta.")
 
     return False
 
@@ -235,8 +256,8 @@ if "historial" not in st.session_state:
 
 with st.sidebar:
     perfil_actual = st.session_state.get("perfil", "")
-    st.caption(f"Sesion: **{PERFILES.get(perfil_actual, perfil_actual)}**")
-    if st.button("Salir", use_container_width=True):
+    st.caption(f"Sesión: **{PERFILES.get(perfil_actual, perfil_actual)}**")
+    if st.button("Salir", width="stretch"):
         st.session_state.pop("perfil", None)
         st.rerun()
     st.divider()
@@ -263,8 +284,9 @@ with st.sidebar:
         source = slug(st.text_input("utm_source", key="otro_source"))
         medium = slug(st.text_input("utm_medium", key="otro_medium"))
     elif is_google:
-        plataforma, source, medium = "google", "", ""
-        st.info("Google Ads: auto-tagging (gclid) activo. **No** se agregan UTMs manuales; se nombra la campaña.")
+        plataforma, source, medium = "google", channel["source"], channel["medium"]
+        st.info("Google Ads: deja el auto-tagging (gclid) activo **y además** pega el sufijo "
+                "de URL final que entrega la app, con el nombre exacto de la campaña.")
     else:
         plataforma = channel["plataforma"]
         source = channel["source"]
@@ -307,8 +329,8 @@ with st.sidebar:
     else:
         manual = st.toggle("Escribir utm_campaign manual", key="camp_manual")
         if manual:
-            campaign = slug(st.text_input("utm_campaign", key="camp_text",
-                                          placeholder="meta_trafico_paquetes-preventivos"))
+            campaign = slug_blocks(st.text_input("utm_campaign", key="camp_text",
+                                                 placeholder="meta_trafico_paquetes-preventivos"))
         else:
             st.markdown(f"Estructura: `{plataforma or 'plataforma'}_objetivo_producto`")
             objetivo = pick("Objetivo", OBJETIVOS, "objetivo")
@@ -325,10 +347,13 @@ with st.sidebar:
         st.divider()
         if has_hierarchy:
             st.subheader("Niveles de anuncio")
-            term = slug(st.text_input("utm_term — conjunto de anuncios (audiencia)", key="term",
-                                      placeholder="lookalike-1-uio, intereses-salud…"))
-            content = slug(st.text_input("utm_content — anuncio (creatividad)", key="content",
-                                         placeholder="ig-video-15s-testimonial, fb-carrusel-a…"))
+            st.caption("Conjunto de anuncios: `audiencia` + `_geo` opcional")
+            t_aud = pick("Audiencia del conjunto", AUDIENCIAS_SOCIAL, "t_aud",
+                         placeholder="intereses-maternidad, similares-compradores…")
+            t_geo = pick("Geo del conjunto (opcional)", GEOS, "t_geo")
+            term = build_ad_group(t_aud, t_geo)
+            content = slug(st.text_input("utm_content — anuncio: formato-tema-version", key="content",
+                                         placeholder="video-15s-testimonial-v2, ig-carrusel-a…"))
         else:
             content = slug(st.text_input("utm_content — pieza / creatividad (opcional)", key="content2",
                                          placeholder="cta-agenda, banner-a…"))
@@ -342,6 +367,11 @@ errors, warnings = url_issues(base_url)
 if is_google:
     if not campaign:
         errors.append("Faltan datos para el nombre de campaña de Google (tipo y producto).")
+elif has_hierarchy:
+    for valor, nivel in ((source, "utm_source"), (medium, "utm_medium"), (campaign, "utm_campaign"),
+                         (term, "el conjunto (audiencia)"), (content, "el anuncio (utm_content)")):
+        if not valor:
+            errors.append(f"Falta {nivel}: el nombre en la plataforma y el UTM tienen que existir los dos.")
 else:
     if not source:
         errors.append("utm_source es obligatorio.")
@@ -356,10 +386,10 @@ for e in errors:
     st.error(e)
 
 
-# ---- Google Ads: no UTMs, se entrega nombre de campaña + landing limpia ----
+# ---- Google Ads: nombres + sufijo de URL final ----
 if is_google:
     st.subheader("Google Ads")
-    st.write("No se agregan UTMs. Usa estos nombres dentro de Google Ads (GA4 los hereda vía el gclid):")
+    st.write("1. Copia estos nombres tal cual dentro de Google Ads.")
 
     st.markdown("**Campaña**")
     st.code(campaign or "google_tipo_[objetivo]_producto_[periodo]", language="text")
@@ -377,16 +407,41 @@ if is_google:
     if not ad_group:
         st.caption("Completa los campos del grupo en la barra lateral.")
 
-    st.markdown("**Landing** (URL limpia, sin UTM)")
+    params = build_params(source, medium, campaign, "", "")
+    sufijo = urlencode(params, quote_via=quote, safe="-._~") if campaign else ""
+    st.write("2. En la campaña: **Configuración → Opciones de URL de la campaña → Sufijo de URL final**. "
+             "Deja el auto-tagging (gclid) activo.")
+    st.code(sufijo or "utm_source=google&utm_medium=cpc&utm_campaign=<nombre de la campaña>", language="text")
+    st.caption("El utm_campaign del sufijo y el nombre de la campaña tienen que ser idénticos. "
+               "Los reportes de BigQuery leen los UTM: sin sufijo, las visitas cuentan como búsqueda orgánica.")
+
+    st.markdown("**URL final de los anuncios** (landing sin UTM; el sufijo se agrega solo)")
     st.code(base_url or DEFAULT_BASE_URL, language="text")
-    final_url = base_url
+    final_url = "" if errors else append_query_params(base_url, params)
 
 # ---- Resto de canales: URL con UTMs ----
 else:
     params = build_params(source, medium, campaign, term, content)
     final_url = "" if errors else append_query_params(base_url, params)
 
-    st.subheader("URL final")
+    if has_hierarchy:
+        st.subheader("1 · Nombres para la plataforma")
+        st.write("Copia cada nombre y pégalo **tal cual** en la plataforma. No los escribas de nuevo: "
+                 "así el nombre y el UTM coinciden y la pauta se puede cruzar con Analytics.")
+        st.markdown("**Campaña**")
+        st.code(campaign or "plataforma_objetivo_producto", language="text")
+        st.markdown("**Conjunto de anuncios**")
+        st.code(term or "audiencia_geo", language="text")
+        st.markdown("**Anuncio**")
+        st.code(content or "formato-tema-version", language="text")
+        st.caption("Si después se renombra la campaña, el conjunto o el anuncio en la plataforma, "
+                   "hay que volver a generar la URL aquí y reemplazarla en todos sus anuncios.")
+        st.subheader("2 · URL final (campo «URL del sitio web» del anuncio)")
+    else:
+        st.write("Copia el nombre de campaña al nombre del envío en la herramienta, para que coincidan.")
+        st.markdown("**Nombre del envío**")
+        st.code(campaign or "plataforma_objetivo_producto", language="text")
+        st.subheader("URL final")
     if final_url:
         st.code(final_url, language="text")
         if len(final_url) > 2000:
@@ -411,6 +466,7 @@ if final_url and not errors:
             "utm_term": term,
             "utm_content": content,
             "ad_group": ad_group,
+            "sufijo_google": sufijo if is_google else "",
             "url": final_url,
         }
         if fila not in st.session_state.historial:
@@ -445,10 +501,13 @@ with st.expander("ℹ️ Reglas rápidas"):
         "al final (`meta_conversion_citas_uio_2026-q3`).\n"
         "- `utm_term` = conjunto de anuncios / audiencia · `utm_content` = anuncio. "
         "Solo Meta y TikTok tienen los dos niveles; el resto usa únicamente `utm_content`.\n"
-        "- En Meta, Instagram vs Facebook se marca en `utm_content` (`ig-video-15s`, "
-        "`fb-carrusel-a`).\n\n"
-        "**Google Ads** — no lleva UTM manual: el auto-tagging (`gclid`) pasa los nombres a GA4. "
-        "Se nombra dentro de la cuenta:\n"
+        "- En Meta, si el anuncio es de una sola red, se marca delante en `utm_content` "
+        "(`ig-video-15s`, `fb-carrusel-a`).\n\n"
+        "**Regla de oro** — cada nombre se crea aquí y se pega igual en la plataforma y en el UTM. "
+        "Los UTM se llenan a mano con esta app: no usamos los parámetros automáticos de Meta o TikTok "
+        "(`{{campaign.name}}`), porque si se edita un nombre no se actualizan.\n\n"
+        "**Google Ads** — auto-tagging (`gclid`) activo **y además** el sufijo de URL final "
+        "`utm_source=google&utm_medium=cpc&utm_campaign=<nombre>`. Se nombra dentro de la cuenta:\n"
         "- Campaña = `google_tipo_[objetivo]_producto_[periodo]` "
         "(`google_search_conversion_cardiologia_2026-q3`).\n"
         "- Grupo de anuncios según el tipo: `tema_intencion_concordancia` en search · "
